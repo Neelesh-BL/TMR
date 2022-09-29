@@ -11,7 +11,7 @@ log = logger.logger_init('testing_model')
 class TestingModel:
     def __init__(self) -> None:
         try:
-            self.testing_data_df = pd.read_csv('/home/hp/Desktop/TMR-EDA/Data/part_20.csv')
+            self.testing_data_df = pd.read_csv('/home/hp/Desktop/TMR-EDA/Data/pract_part_20.csv')
           
         except:
             exception_type, _, exception_traceback = sys.exc_info()       
@@ -76,6 +76,12 @@ class TestingModel:
             df['RFP Last Internal Rating'] = df['RFP Last Internal Rating'].replace(
                                                 {'Unsatisfactory': 0, 'Improvement needed': 1, 'Meets expectations':2,
                                                  'Exceeds expectations':3,'Exceptional':4})
+
+             # Encoding the feature 'Practice Head'
+            df['Practice Head'] = df['Practice Head'].replace(
+                                                {'Ashish Vishwakarma': 0, 'Sunil Patil': 1,
+                                                'Nagendra':2, 'Dilip':3,'Gunjan':4, 'Sunil':5,
+                                                'Ashish':6})
 
             # Encoding the feature 'TechCategory'
             df['TechCategory'] = df['TechCategory'].replace({'FullStack': 3, 'AdvTech-1': 2,'AdvTech-2':2,
