@@ -1,25 +1,31 @@
 import pandas as pd
 import sys
 import joblib
-from sklearn.metrics import accuracy_score
+# from sklearn.metrics import accuracy_score
 from logger import logger
 
 
-log = logger.logger_init('testing_model')
+log = logger.logger_init('prediction_tmr')
 
 
 class TestingModel:
-    def __init__(self) -> None:
-        try:
-            self.testing_data_df = pd.read_csv('/home/hp/Desktop/TMR-EDA/Data/part_20.csv')
-          
+    def create_df(self, RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
+                 Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head):
+        try:     
+            df = pd.DataFrame({'RFP Last Internal Rating': RFP_Last_Internal_Rating, 'Trial Last Internal Rating': Trial_Last_Internal_Rating,
+            'Trial % Present': Trial_percent_Present, 'RFP Avg TRACK Score': RFP_Avg_TRACK_Score, 'Trial Avg TRACK Score': Trial_Avg_TRACK_Score,
+            'RFP Tech Ability': RFP_Tech_Ability,'RFP Last TRACK Score': RFP_Last_TRACK_Score,'Trial Techability Score': Trial_Techability_Score,
+            'Practice Head': Practice_Head}, index=[0])
+
+            return df
+
         except:
             exception_type, _, exception_traceback = sys.exc_info()       
             line_number = exception_traceback.tb_lineno
             log.exception(f"Exception type : {exception_type} \nError on line number : {line_number}")
 
 
-    def preprocessing(self):
+    def preprocessing(self, df):
         """
             Description:
                 This function is used perform all the preprocessing steps in the data.
@@ -30,26 +36,30 @@ class TestingModel:
         """
         try:
             # Dropping the rows wherein column values does not lies within the defined range
-            self.testing_data_df.drop(self.testing_data_df.loc[
-                                    (self.testing_data_df['RFP Avg TRACK Score']>5.0) | 
-                                    (self.testing_data_df['Trial Avg TRACK Score']>5.0) | 
-                                    (self.testing_data_df['RFP Tech Ability']>2.0) |
-                                    (self.testing_data_df['RFP Last TRACK Score']>5.0) |
-                                    (self.testing_data_df['Trial Techability Score']>2.0)
+            df.drop(self.testing_data_df.loc[
+                                    (df['RFP Avg TRACK Score']>5.0) | 
+                                    (df['Trial Avg TRACK Score']>5.0) | 
+                                    (df['RFP Tech Ability']>2.0) |
+                                    (df['RFP Last TRACK Score']>5.0) |
+                                    (df['Trial Techability Score']>2.0)
                                     ].index, inplace = True)
 
             # Removing the % symbol from the 'Trial % Present'
-            self.testing_data_df.replace('\%', '', regex=True, inplace=True)
+            df.replace('\%', '', regex=True, inplace=True)
 
             # Changing the type of 'Trial % Present' column from object to float
-            self.testing_data_df['Trial % Present'] = self.testing_data_df['Trial % Present'].astype('float64')
+            df['Trial % Present'] = df['Trial % Present'].astype('float64')
 
-            # Dropping all those rows which have any value as null
-            self.testing_data_df = self.testing_data_df.dropna(subset=['RFP Last Internal Rating',
+           # Dropping all those rows which have any value as null
+            df = df.dropna(subset=['RFP Last Internal Rating',
             'Trial Last Internal Rating','Trial % Present','RFP Avg TRACK Score','Trial Avg TRACK Score',
-            'RFP Tech Ability','RFP Last TRACK Score','Trial Techability Score','TechCategory'])
+            'RFP Tech Ability','RFP Last TRACK Score','Trial Techability Score','Practice Head'])
 
-            return self.testing_data_df
+            # Replacing the practice head names to Sunil and Ashish if Sunil Patil, Ashish Vishwakarma are present
+            df.loc[df["Practice Head"] == "Sunil Patil", "Practice Head"] = "Sunil"
+            df.loc[df["Practice Head"] == "Ashish Vishwakarma", "Practice Head"] = "Ashish"
+
+            return df
 
         except:
             exception_type, _, exception_traceback = sys.exc_info()       
@@ -77,9 +87,9 @@ class TestingModel:
                                                 {'Unsatisfactory': 0, 'Improvement needed': 1, 'Meets expectations':2,
                                                  'Exceeds expectations':3,'Exceptional':4})
 
-            # Encoding the feature 'TechCategory'
-            df['TechCategory'] = df['TechCategory'].replace({'FullStack': 3, 'AdvTech-1': 2,'AdvTech-2':2,
-                                                             'BasicTech':1, 'StdTech':0, 'DeepTech':3,})
+             # Encoding the feature 'Practice Head'
+            df['Practice Head'] = df['Practice Head'].replace({'Nagendra':0, 'Dilip':1,'Gunjan':3, 'Sunil':4,
+                                                                'Ashish':5})
 
             return df   
 
@@ -130,10 +140,7 @@ class TestingModel:
             # Use the loaded model to make predictions
             y_pred = svc_clf.predict(X)
 
-            # Finding the Accuracy on unseen data
-            accuracy = accuracy_score(y, y_pred)
-
-            return accuracy
+            return y_pred
 
         except:
             exception_type, _, exception_traceback = sys.exc_info()       
@@ -141,7 +148,8 @@ class TestingModel:
             log.exception(f"Exception type : {exception_type} \nError on line number : {line_number}")
 
 
-def main():
+def tmr_main(RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
+            Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head):
     """
         Description:
             This function is used to call the other functions.
@@ -154,8 +162,11 @@ def main():
         # Instantiating the class
         testing_model_obj = TestingModel()
 
+        df = testing_model_obj.create_df(RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
+                                        Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head)
+
         # Calling the preprocessing function
-        preprocessed_df = testing_model_obj.preprocessing()
+        preprocessed_df = testing_model_obj.preprocessing(df)
 
         # Calling the encoding function
         encoded_df = testing_model_obj.encoding(preprocessed_df)
@@ -164,10 +175,9 @@ def main():
         X, y = testing_model_obj.segregate(encoded_df)
 
         # Calling the load_model function
-        accuracy = testing_model_obj.load_model(X, y)
+        y_pred = testing_model_obj.load_model(X, y)
 
-        # Printing the accuracy for the model
-        log.info(f"Model Accuracy : {accuracy}")
+        return y_pred
 
     except:
         exception_type, _, exception_traceback = sys.exc_info()       
@@ -176,4 +186,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    tmr_main()
