@@ -2,7 +2,6 @@ import imp
 import pandas as pd
 import sys
 import joblib
-# from sklearn.metrics import accuracy_score
 from logger import logger
 
 
@@ -10,12 +9,13 @@ log = logger.logger_init('prediction_tmr')
 
 
 class TestingModel:
+    
     def create_df(self, RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
                  Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head):
         try:     
             df = pd.DataFrame({'RFP Last Internal Rating': RFP_Last_Internal_Rating, 'Trial Last Internal Rating': Trial_Last_Internal_Rating,
-            'Trial % Present': Trial_percent_Present, 'RFP Avg TRACK Score': RFP_Avg_TRACK_Score, 'Trial Avg TRACK Score': Trial_Avg_TRACK_Score,
-            'RFP Tech Ability': RFP_Tech_Ability,'RFP Last TRACK Score': RFP_Last_TRACK_Score,'Trial Techability Score': Trial_Techability_Score,
+            'Trial % Present': Trial_percent_Present, 'RFP Avg TRACK Score': float(RFP_Avg_TRACK_Score), 'Trial Avg TRACK Score': float(Trial_Avg_TRACK_Score),
+            'RFP Tech Ability': float(RFP_Tech_Ability),'RFP Last TRACK Score': float(RFP_Last_TRACK_Score),'Trial Techability Score': float(Trial_Techability_Score),
             'Practice Head': Practice_Head}, index=[0])
 
             return df
@@ -37,13 +37,13 @@ class TestingModel:
         """
         try:
             # Dropping the rows wherein column values does not lies within the defined range
-            df.drop(self.testing_data_df.loc[
-                                    (df['RFP Avg TRACK Score']>5.0) | 
-                                    (df['Trial Avg TRACK Score']>5.0) | 
-                                    (df['RFP Tech Ability']>2.0) |
-                                    (df['RFP Last TRACK Score']>5.0) |
-                                    (df['Trial Techability Score']>2.0)
-                                    ].index, inplace = True)
+            df.drop(df.loc[
+                        (df['RFP Avg TRACK Score']>5.0) | 
+                        (df['Trial Avg TRACK Score']>5.0) | 
+                        (df['RFP Tech Ability']>2.0) |
+                        (df['RFP Last TRACK Score']>5.0) |
+                        (df['Trial Techability Score']>2.0)
+                        ].index, inplace = True)
 
             # Removing the % symbol from the 'Trial % Present'
             df.replace('\%', '', regex=True, inplace=True)
@@ -100,7 +100,7 @@ class TestingModel:
             log.exception(f"Exception type : {exception_type} \nError on line number : {line_number}")
 
 
-    def load_model(self, X, y):
+    def load_model(self, X):
         """
             Description:
                 This function is used to load the saved model and make prediction on the unseen data.
@@ -142,17 +142,13 @@ def tmr_main(RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent
         df = testing_model_obj.create_df(RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
                                         Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head)
 
-        # Calling the preprocessing function
-        preprocessed_df = testing_model_obj.preprocessing()
+        preprocessed_df = testing_model_obj.preprocessing(df)
 
         # Calling the encoding function
         encoded_df = testing_model_obj.encoding(preprocessed_df)
-        
-        # Calling the segregate function
-        X, y = testing_model_obj.segregate(encoded_df)
 
         # Calling the load_model function
-        y_pred = testing_model_obj.load_model(X, y)
+        y_pred = testing_model_obj.load_model(encoded_df)
 
         return y_pred
 
