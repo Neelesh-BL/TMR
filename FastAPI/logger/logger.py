@@ -9,7 +9,7 @@ def logger_init(name):
     if not os.path.exists('logger'):
         os.makedirs('logger')
     else:
-        file_handler = logging.FileHandler('logger/train_test.log')
+        file_handler = logging.FileHandler('logger/tmr_fastapi.log')
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
