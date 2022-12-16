@@ -1,16 +1,18 @@
-from fastapi import Depends
+from fastapi import APIRouter, File, UploadFile, BackgroundTasks, Depends, status
 from prediction_tmr import tmr_main
-from fastapi import APIRouter, File, UploadFile
 from models.features import Features
 import pandas as pd
-import json
-from config.database import db
 import numpy as np
-import pydantic
+from config.database import db
 from bson.objectid import ObjectId
+import sys, csv, json, os, codecs, pydantic
 pydantic.json.ENCODERS_BY_TYPE[ObjectId]=str
-import sys
+from pathlib import Path
 from logger import logger
+from routes.auth import get_api_key
+from fastapi.security.api_key import APIKey
+from datetime import datetime
+ 
 
 
 log = logger.logger_init('tmr_api')
@@ -23,166 +25,30 @@ async def welcome():
     return {"detail":"Welcome to Bridgelabz TMR"}
 
 
-@prediction.post("/test_model")
-async def test_model(params: Features = Depends()):
+@prediction.post("/predict_individual_data")
+async def test_model(params: Features = Depends(), api_key: APIKey = Depends(get_api_key)):
     try:
-        last_internal_rating = ['Unsatisfactory','Improvement needed','Meets expectations','Exceeds expectations','Exceptional']
-        practice_head = ['Ashish','Sunil','Gunjan','Dilip','Nagendra']
 
-        if str(params.RFP_Last_Internal_Rating) not in last_internal_rating:
-            return {"Error" : "RFP_Last_Internal_Rating should be [Unsatisfactory,Improvement needed,Meets expectations,Exceeds expectations,Exceptional] one of the following"}
-        if str(params.Trial_Last_Internal_Rating) not in last_internal_rating:
-            return {"Error" : "Trial_Last_Internal_Rating should be [Unsatisfactory,Improvement needed,Meets expectations,Exceeds expectations,Exceptional] one of the following"}
-        if str(params.Practice_Head) not in practice_head:
-            return {"Error" : "Practice_Head should be ['Ashish','Sunil','Gunjan','Dilip','Nagendra'] one of the following"}
+        last_internal_rating = ['UNSATISFACTORY','IMPROVEMENT NEEDED','MEETS EXPECTATIONS','EXCEEDS EXPECTATIONS','EXCEPTIONAL']
+        practice_head = ['ASHISH','SUNIL','GUNJAN','DILIP','NAGENDRA']
 
+        if str(params.Trial_Last_Internal_Rating).upper() not in last_internal_rating:
+            return {"status_code":status.HTTP_400_BAD_REQUEST, "message": "Trial_Last_Internal_Rating should be [Unsatisfactory,Improvement needed,Meets expectations,Exceeds expectations,Exceptional] one of the following"}
+        if str(params.Practice_Head).upper() not in practice_head:
+            return {"status_code":status.HTTP_400_BAD_REQUEST, "message": "Practice_Head should be ['Ashish','Sunil','Gunjan','Dilip','Nagendra'] one of the following"}
 
-        y_pred = tmr_main(str(params.RFP_Last_Internal_Rating), str(params.Trial_Last_Internal_Rating), float(params.Trial_percent_Present), float(params.RFP_Avg_TRACK_Score),
-                float(params.Trial_Avg_TRACK_Score), float(params.RFP_Tech_Ability), float(params.RFP_Last_TRACK_Score), float(params.Trial_Techability_Score), str(params.Practice_Head))
+        y_pred = tmr_main(float(params.RFP_Avg_TRACK_Score), float(params.RFP_Tech_Ability), float(params.RFP_Learnability), float(params.RFP_Communicability),
+                        str(params.Trial_Last_Internal_Rating), float(params.Trial_Communicability_Score), float(params.Trial_Learnability_Score), float(params.Trial_Techability_Score), str(params.Practice_Head))
 
-        if y_pred == 3:
-            return {"Predicted" : "FullStack_DeepTech"}
-        elif y_pred == 2:
-            return {"Predicted" : "AdvTech_1_2"}
+        if y_pred == 2:
+            return {"status_code":status.HTTP_200_OK,"Predicted" : "FullStack_DeepTech"}
+        elif y_pred == 0:
+            return {"status_code":status.HTTP_200_OK,"Predicted" : "AdvTech_1_2"}
         elif y_pred == 1:
-            return {"Predicted" : "BasicTech"}
+            return {"status_code":status.HTTP_200_OK,"Predicted" : "BasicTech"}
         else:
-            return {"Predicted" : "StdTech"}
+            return {"status_code":status.HTTP_200_OK,"Predicted" : "StdTech"}
     
-    except:
-        exception_type, _, exception_traceback = sys.exc_info()       
-        line_number = exception_traceback.tb_lineno
-        log.exception(f"Exception type : {exception_type} \nError on line number : {line_number}")
-
-
-def convertStringToDataframe(content):
-    """
-        Description:
-            This function is used to convert the string data into a dataframe
-        Parameters:
-            content: The string data that needs to be converted into a dataframe
-        Return:
-            Returns a dataframe
-    """
-    try :
-
-        # List to store the data rows for the dataframe
-        data_list = []
-        data = content.decode('utf-8').splitlines()
-
-        # iterating the data
-        for index,row in enumerate(data):
-
-            # The first line contains the column names therefore checking for index=0
-            if index ==0:
-
-                # storing the column names
-                columns = row.split(',')
-
-            else:
-
-                # List to store the data for each row
-                row_list = []
-
-                # storing the row data
-                row_data = row.split(',')
-
-                for value in row_data:
-
-                    # Checking if any entry is empty as replacing it with nan
-                    if value == '':
-                        row_list.append(np.nan)
-                    else:
-                        row_list.append(value)
-
-                # Appending the all the row lists
-                data_list.append(row_list)
-            
-        df = pd.DataFrame(data_list)
-        df.columns = columns
-        return df
-    
-    except:
-        
-        exception_type, _, exception_traceback = sys.exc_info()       
-        line_number = exception_traceback.tb_lineno
-        log.exception(f"Exception type : {exception_type} \nError on line number : {line_number}")
-    
-
-def techcategory_predition(df):
-    """
-        Description:
-            This function is used to predict the TechCategory for each datapoint in the dataframe
-        Parameters:
-            df: The dataframe containing the datapoints
-        Return:
-            It returns a dataframe containing an additional column with the predicted result
-    """
-    try :
-
-        # List to store the prediction result for each datapoint
-        prediction_list = []
-
-        # List to store the admit_id for each datapoint
-        admit_id_list = []
-
-        # Dictionary to store the admit_id and predictions
-        final_dict = {}
-
-        # Dropping the rows wherein the mandatory columns are null/empty
-        df.dropna(subset=['RFP Last Internal Rating','Trial Last Internal Rating','Trial % Present','RFP Avg TRACK Score','Trial Avg TRACK Score','RFP Tech Ability','RFP Last TRACK Score','Trial Techability Score','Practice Head'],inplace=True)
-        df.reset_index(inplace = True, drop=True)
-
-        # Checking if the column names are present in the dataframe
-        if (('RFP Last Internal Rating' in df.columns)  and ('Trial Last Internal Rating' in df.columns) and 
-            ('Trial % Present' in df.columns) and ('RFP Avg TRACK Score' in df.columns) and ('Trial Avg TRACK Score' in df.columns)
-            and ('RFP Tech Ability'  in df.columns) and ('RFP Last TRACK Score' in df.columns) and ('Trial Techability Score' in df.columns)
-            and ('Practice Head' in df.columns)) :
-
-            # Iterating through the dataframe
-            for index in df.index:
-                RFP_Last_Internal_Rating = df['RFP Last Internal Rating'][index]
-                Trial_Last_Internal_Rating = df['Trial Last Internal Rating'][index]
-                Trial_percent_Present = df['Trial % Present'][index]
-                RFP_Avg_TRACK_Score = df['RFP Avg TRACK Score'][index]
-                Trial_Avg_TRACK_Score = df['Trial Avg TRACK Score'][index]
-                RFP_Tech_Ability = df['RFP Tech Ability'][index]
-                RFP_Last_TRACK_Score = df['RFP Last TRACK Score'][index]
-                Trial_Techability_Score = df['Trial Techability Score'][index]
-                Practice_Head = df['Practice Head'][index]
-        
-                # Calling the tmr_main()
-                y_pred = tmr_main(RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
-                                Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head)
-
-                if y_pred == 3:
-                    admit_id_list.append(df['Admit ID'][index])
-                    prediction_list.append("FullStack_DeepTech")
-                elif y_pred == 2:
-                    admit_id_list.append(df['Admit ID'][index])
-                    prediction_list.append("AdvTech_1_2")
-                elif y_pred == 1:
-                    admit_id_list.append(df['Admit ID'][index])
-                    prediction_list.append("BasicTech")
-                else:
-                    admit_id_list.append(df['Admit ID'][index])
-                    prediction_list.append("StdTech")
-
-            final_dict = {
-                'Admit ID' : admit_id_list,
-                'Predicted' : prediction_list
-            }
-            
-            # Adding the Prediction column to the existing dataframe
-            df['Prediction'] = prediction_list
-
-            new_df = pd.DataFrame(final_dict)
-
-            return parse_csv(new_df), df
-
-        else:
-            return {'Error': 'Please check if all the mandatory columns are present in the dataset or not'}
-
     except:
         exception_type, _, exception_traceback = sys.exc_info()       
         line_number = exception_traceback.tb_lineno
@@ -206,29 +72,156 @@ def parse_csv(df):
     except:
         exception_type, _, exception_traceback = sys.exc_info()       
         line_number = exception_traceback.tb_lineno
+        log.exception(f"Exception type : {exception_type} \nError on line number : {line_number}")   
+
+
+def techcategory_predition(df):
+    """
+        Description:
+            This function is used to predict the TechCategory for each datapoint in the dataframe
+        Parameters:
+            df: The dataframe containing the datapoints
+        Return:
+            It returns a dataframe containing an additional column with the predicted results
+    """
+    try :
+
+        # List to store the prediction result for each datapoint
+        prediction_list = []
+
+        # List to store the admit_id for each datapoint
+        admit_id_list = []
+
+        # Dictionary to store the admit_id and predictions
+        final_dict = {}
+                    
+        # Renaming few column names
+        df = df.rename(columns={ 
+                    'ADMIT ID':'Admit ID',
+                    'RFP AVG TRACK SCORE':'RFP Avg TRACK Score',
+                    'RFP TECH ABILITY':'RFP Tech Ability',
+                    'RFP LEARNABILITY':'RFP Learnability',
+                    'RFP COMMUNICABILITY':'RFP Communicability',
+                    'TRIAL COMMUNICABILITY SCORE':'Trial Communicability Score',
+                    'TRIAL LAST INTERNAL RATING':'Trial Last Internal Rating',
+                    'TRIAL LEARNABILITY SCORE':'Trial Learnability Score',
+                    'TRIAL TECHABILITY SCORE':'Trial Techability Score',
+                    'PRACTICE HEAD':'Practice Head',
+                    'TECHCATEGORY':'TechCategory',
+                    'CONSIDER':'Consider'
+                    })
+
+        print(df.columns)
+        
+        # Dropping the rows wherein the column(Consider) is 'Ignore'
+        df.drop(df[df['Consider']=='Ignore'].index , inplace=True)
+
+        # Replacing the empty string with nan in the dataframe
+        df.replace(r'^\s*$', np.nan, regex=True, inplace=True)
+
+        # Dropping the rows wherein the mandatory columns are null/empty
+        df.dropna(subset=['RFP Avg TRACK Score','RFP Tech Ability','RFP Learnability','RFP Communicability','Trial Communicability Score',
+                'Trial Last Internal Rating','Trial Learnability Score','Trial Techability Score','Practice Head','TechCategory'],inplace=True)
+        df.reset_index(inplace = True, drop=True)
+
+        # Changing the type of certain columns from object to float
+        df['RFP Avg TRACK Score'] = df['RFP Avg TRACK Score'].astype('float64')
+        df['RFP Tech Ability'] = df['RFP Tech Ability'].astype('float64')
+        df['RFP Learnability'] = df['RFP Learnability'].astype('float64')
+        df['RFP Communicability'] = df['RFP Communicability'].astype('float64')
+        df['Trial Communicability Score'] = df['Trial Communicability Score'].astype('float64')
+        df['Trial Learnability Score'] = df['Trial Learnability Score'].astype('float64')
+        df['Trial Techability Score'] = df['Trial Techability Score'].astype('float64')
+
+        # Iterating through the dataframe
+        for index in df.index:
+            RFP_Avg_TRACK_Score = df['RFP Avg TRACK Score'][index]
+            RFP_Tech_Ability = df['RFP Tech Ability'][index]
+            RFP_Learnability = df['RFP Learnability'][index]
+            RFP_Communicability = df['RFP Communicability'][index]
+            Trial_Communicability_Score = df['Trial Communicability Score'][index]
+            Trial_Last_Internal_Rating = df['Trial Last Internal Rating'][index]              
+            Trial_Learnability_Score = df['Trial Learnability Score'][index]
+            Trial_Techability_Score = df['Trial Techability Score'][index]     
+            Practice_Head = df['Practice Head'][index]
+                
+            # Calling the tmr_main()
+            y_pred = tmr_main(RFP_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Learnability, RFP_Communicability,
+                            Trial_Last_Internal_Rating,Trial_Communicability_Score, Trial_Learnability_Score, Trial_Techability_Score, Practice_Head)
+
+            if y_pred == 2:
+                admit_id_list.append(df['Admit ID'][index])
+                prediction_list.append("FullStack_DeepTech")
+            elif y_pred == 0:
+                admit_id_list.append(df['Admit ID'][index])
+                prediction_list.append("AdvTech_1_2")
+            elif y_pred == 1:
+                admit_id_list.append(df['Admit ID'][index])
+                prediction_list.append("BasicTech")
+            else:
+                admit_id_list.append(df['Admit ID'][index])
+                prediction_list.append("StdTech")
+
+        final_dict = {
+            'Admit ID' : admit_id_list,
+            'Predicted' : prediction_list
+        }
+            
+        # Adding the Prediction column to the existing dataframe
+        df['Prediction'] = prediction_list
+
+        new_df = pd.DataFrame(final_dict)
+
+        return parse_csv(new_df), df
+
+    except: 
+        exception_type, _, exception_traceback = sys.exc_info()       
+        line_number = exception_traceback.tb_lineno
         log.exception(f"Exception type : {exception_type} \nError on line number : {line_number}")
 
 
-@prediction.post("/csv")
-async def parsecsv(file: UploadFile = File(...)):
+@prediction.post("/predict_bulk_data")
+async def upload(background_tasks: BackgroundTasks,file: UploadFile = File(...), api_key: APIKey = Depends(get_api_key)):
     try:
-        # Reading the content of the file
-        contents = await file.read()
 
-        # Converting the csv data into a dataframe
-        df = convertStringToDataframe(contents)
-        
-        # Calling the techcategory_prediction function
-        json_string, df2 = techcategory_predition(df)
+        # Checking if the file extension is .csv or not
+        if file.filename.endswith('.csv'):
+            csvReader = csv.DictReader(codecs.iterdecode(file.file, 'utf-8'))
+            background_tasks.add_task(file.file.close)
+            json_data = list(csvReader)
 
-        # Converting the dataframe to dictionary
-        data_dict = df2.to_dict("records")
+            df = pd.json_normalize(json_data)
+            df.columns = [col.upper() for col in df.columns]
+            input_col_list = list(df.columns)
+            expected_col_list = ['RFP AVG TRACK SCORE','RFP TECH ABILITY','RFP LEARNABILITY','RFP COMMUNICABILITY','TRIAL COMMUNICABILITY SCORE',
+                        'TRIAL LAST INTERNAL RATING','TRIAL LEARNABILITY SCORE','TRIAL TECHABILITY SCORE','PRACTICE HEAD','TECHCATEGORY']
+            check =  all(item in input_col_list for item in expected_col_list)
 
-        # Storing the data_dict into mongodb collection
-        db.tmr_prediction_results.insert_many(data_dict)
+            if check is True:
+                json_string, df2 = techcategory_predition(df)
+                date_string = datetime.now().strftime("%d_%m_%Y_%H_%M")
+                path = os.path.join(os.getcwd(), 'results')
+                isExist = os.path.exists(path)
 
-        return {"file_contents": json_string}
+                if not isExist:          
+                    os.mkdir(path)            
+                path = os.getcwd() + '/results/' + 'result_' + date_string + '.csv'
+                
+                # Storing the dataframe into a csv file
+                df2.to_csv(Path(path), index=False)
 
+                # Converting the dataframe to dictionary
+                data_dict = df2.to_dict("records")
+
+                # Storing the data_dict into mongodb collection
+                db.tmr_prediction_results.insert_many(data_dict)
+
+                return {"status_code":status.HTTP_200_OK, "file_contents": json_string}
+
+            else:
+                return {"status_code":status.HTTP_400_BAD_REQUEST, "message": "The file doesn't contains the all the columns required to make predictions"}
+        else:
+            return {"status_code":status.HTTP_400_BAD_REQUEST, "message": "The file extension should be .csv"}
     except:
         exception_type, _, exception_traceback = sys.exc_info()       
         line_number = exception_traceback.tb_lineno
