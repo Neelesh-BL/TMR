@@ -1,7 +1,6 @@
-import imp
 import pandas as pd
-import sys
-import joblib
+import sys, joblib, glob, os, pickle
+from pathlib import Path
 from logger import logger
 
 
@@ -10,13 +9,23 @@ log = logger.logger_init('prediction_tmr')
 
 class TestingModel:
     
-    def create_df(self, RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
-                 Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head):
-        try:     
-            df = pd.DataFrame({'RFP Last Internal Rating': RFP_Last_Internal_Rating, 'Trial Last Internal Rating': Trial_Last_Internal_Rating,
-            'Trial % Present': Trial_percent_Present, 'RFP Avg TRACK Score': float(RFP_Avg_TRACK_Score), 'Trial Avg TRACK Score': float(Trial_Avg_TRACK_Score),
-            'RFP Tech Ability': float(RFP_Tech_Ability),'RFP Last TRACK Score': float(RFP_Last_TRACK_Score),'Trial Techability Score': float(Trial_Techability_Score),
-            'Practice Head': Practice_Head}, index=[0])
+
+    def create_df(self, RFP_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Learnability, RFP_Communicability,
+                Trial_Last_Internal_Rating,Trial_Communicability_Score, Trial_Learnability_Score, Trial_Techability_Score, Practice_Head):
+        """
+            Description:
+                This function is used create a dataframe for a single datapoint.
+            Parameters:
+                List of parameters which are feature values
+            Return:
+                Returns a dataframe for a datapoint
+        """
+        try:
+
+            df = pd.DataFrame({'RFP Avg TRACK Score': float(RFP_Avg_TRACK_Score), 'RFP Tech Ability': float(RFP_Tech_Ability),
+            'RFP Learnability': float(RFP_Learnability), 'RFP Communicability': float(RFP_Communicability),  'Trial Communicability Score': float(Trial_Communicability_Score),
+            'Trial Last Internal Rating': str(Trial_Last_Internal_Rating),'Trial Learnability Score': float(Trial_Learnability_Score), 'Trial Techability Score': float(Trial_Techability_Score),
+            'Practice Head': str(Practice_Head)}, index=[0])
 
             return df
 
@@ -31,7 +40,7 @@ class TestingModel:
             Description:
                 This function is used perform all the preprocessing steps in the data.
             Parameters:
-                None.
+                df: The dataframe on which the preprocessing is to done.
             Return:
                 Returns the dataframe with preprocessed data.
         """
@@ -39,22 +48,13 @@ class TestingModel:
             # Dropping the rows wherein column values does not lies within the defined range
             df.drop(df.loc[
                         (df['RFP Avg TRACK Score']>5.0) | 
-                        (df['Trial Avg TRACK Score']>5.0) | 
                         (df['RFP Tech Ability']>2.0) |
-                        (df['RFP Last TRACK Score']>5.0) |
+                        (df['RFP Learnability']>2.0) |                   
+                        (df['RFP Communicability']>1.0) |
+                        (df['Trial Communicability Score']>1.0) |
+                        (df['Trial Learnability Score']>2.0) |
                         (df['Trial Techability Score']>2.0)
                         ].index, inplace = True)
-
-            # Removing the % symbol from the 'Trial % Present'
-            df.replace('\%', '', regex=True, inplace=True)
-
-            # Changing the type of 'Trial % Present' column from object to float
-            df['Trial % Present'] = df['Trial % Present'].astype('float64')
-
-           # Dropping all those rows which have any value as null
-            df = df.dropna(subset=['RFP Last Internal Rating',
-            'Trial Last Internal Rating','Trial % Present','RFP Avg TRACK Score','Trial Avg TRACK Score',
-            'RFP Tech Ability','RFP Last TRACK Score','Trial Techability Score','Practice Head'])
 
             # Replacing the practice head names to Sunil and Ashish if Sunil Patil, Ashish Vishwakarma are present
             df.loc[df["Practice Head"] == "Sunil Patil", "Practice Head"] = "Sunil"
@@ -78,20 +78,22 @@ class TestingModel:
                 Returns the dataframe with encoded categorical features.
         """
         try:
-            # Encoding the feature 'Trial Last Internal Rating'
-            df['Trial Last Internal Rating'] = df['Trial Last Internal Rating'].replace(
-                                                {'Unsatisfactory': 0, 'Improvement needed': 1, 'Meets expectations':2,
-                                                 'Exceeds expectations':3,'Exceptional':4})
-            
-            # Encoding the feature 'RFP Last Internal Rating'
-            df['RFP Last Internal Rating'] = df['RFP Last Internal Rating'].replace(
-                                                {'Unsatisfactory': 0, 'Improvement needed': 1, 'Meets expectations':2,
-                                                 'Exceeds expectations':3,'Exceptional':4})
+            path = os.path.join(os.getcwd(), 'encoder') 
+            isExist = os.path.exists(path)
 
-             # Encoding the feature 'Practice Head'
-            df['Practice Head'] = df['Practice Head'].replace({'Nagendra':0, 'Dilip':1,'Gunjan':3, 'Sunil':4,
-                                                                'Ashish':5})
+            if isExist:
+                path = os.getcwd() + '/encoder/' + 'encoder_objects.pickle'      
+                with open(Path(path), 'rb') as handle:
+                    encoder_dict = pickle.load(handle)
 
+            for col in list(df.columns):
+                # checking if the column is categorical or not
+                if df[col].dtype == 'object':
+                    df[col] = encoder_dict[col].fit_transform(df[col])
+
+            else:
+                log.exception(f"No such directory exists")
+           
             return df   
 
         except:
@@ -106,18 +108,24 @@ class TestingModel:
                 This function is used to load the saved model and make prediction on the unseen data.
             Parameters:
                 X: Dataframe that contains all the features excluding the class label.
-                y: Dataframe containing only the class label.
             Return:
-                Returns the accuracy of the model on unseen data.
+                Returns the predicted tech category.
         """
         try:
-            # Load the model from the file
-            svc_clf = joblib.load('/home/hp/Desktop/TMR-EDA/Data/svc.pkl')
+            path = os.getcwd() + '/ML_models/'
+            isExist = os.path.exists(path)
 
-            # Use the loaded model to make predictions
-            y_pred = svc_clf.predict(X)
+            if isExist:
+                list_of_files = glob.glob(path + '*.pkl')
+                latest_file = max(list_of_files, key=os.path.getctime)
+                
+                # Load the model from the file
+                rf_clf = joblib.load(latest_file)
 
-            return y_pred
+                # Use the loaded model to make predictions
+                y_pred = rf_clf.predict(X)
+
+                return y_pred
 
         except:
             exception_type, _, exception_traceback = sys.exc_info()       
@@ -125,8 +133,8 @@ class TestingModel:
             log.exception(f"Exception type : {exception_type} \nError on line number : {line_number}")
 
 
-def tmr_main(RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
-            Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head):
+def tmr_main(RFP_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Learnability, RFP_Communicability,
+            Trial_Last_Internal_Rating,Trial_Communicability_Score, Trial_Learnability_Score, Trial_Techability_Score, Practice_Head):
     """
         Description:
             This function is used to call the other functions.
@@ -138,10 +146,11 @@ def tmr_main(RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent
     try:
         # Instantiating the class
         testing_model_obj = TestingModel()
+    
+        df = testing_model_obj.create_df(RFP_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Learnability, RFP_Communicability,
+            Trial_Last_Internal_Rating,Trial_Communicability_Score, Trial_Learnability_Score, Trial_Techability_Score, Practice_Head)
 
-        df = testing_model_obj.create_df(RFP_Last_Internal_Rating, Trial_Last_Internal_Rating, Trial_percent_Present, RFP_Avg_TRACK_Score,
-                                        Trial_Avg_TRACK_Score, RFP_Tech_Ability, RFP_Last_TRACK_Score, Trial_Techability_Score, Practice_Head)
-
+        # Calling the preprocessing function
         preprocessed_df = testing_model_obj.preprocessing(df)
 
         # Calling the encoding function
